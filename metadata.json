@@ -1,0 +1,6 @@
+{
+  "name": "MemoAI",
+  "description": "Personal AI Note & Task Assistant with Voice Intent Recognition, Scheduling & Smart Reminders",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

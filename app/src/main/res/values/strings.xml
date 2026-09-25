@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">MemoAI</string>
+    <string name="nav_home">Tổng quan</string>
+    <string name="nav_tasks">Công việc</string>
+    <string name="nav_notes">Ghi chú</string>
+    <string name="nav_calendar">Lịch trình</string>
+    <string name="nav_assistant">Trợ lý AI</string>
+    <string name="nav_statistics">Thống kê</string>
+    <string name="nav_settings">Cài đặt</string>
+    <string name="action_save">Lưu</string>
+    <string name="action_cancel">Hủy</string>
+    <string name="action_delete">Xóa</string>
+    <string name="action_complete">Hoàn thành</string>
+    <string name="channel_task_reminders">Nhắc nhở công việc</string>
+</resources>
