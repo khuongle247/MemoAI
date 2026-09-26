@@ -49,7 +49,7 @@ object RecurrenceHelper {
      * Compute the next due date based on the current due date and repeat rule.
      * Guarantees returning a valid YYYY-MM-DD string, advancing to present/future if needed.
      */
-    fun computeNextDueDate(currentDueDateStr: String, rule: String): String {
+    fun computeNextDueDate(currentDueDateStr: String, rule: String, ensureNotPastToday: Boolean = false): String {
         if (rule.isBlank() || rule == NONE) return currentDueDateStr
 
         val baseDate = try {
@@ -88,7 +88,7 @@ object RecurrenceHelper {
         }
 
         // If nextDate is strictly in the past relative to today, keep stepping forward until it's today or later
-        if (nextDate.isBefore(today)) {
+        if (ensureNotPastToday && nextDate.isBefore(today)) {
             val stepDays = when {
                 rule == DAILY -> 1L
                 rule == WEEKLY -> 7L
@@ -136,7 +136,7 @@ object RecurrenceHelper {
             return null
         }
 
-        val nextDueDate = computeNextDueDate(completedTask.dueDate, completedTask.repeatRule)
+        val nextDueDate = computeNextDueDate(completedTask.dueDate, completedTask.repeatRule, ensureNotPastToday = true)
         val now = System.currentTimeMillis()
 
         return completedTask.copy(

@@ -21,15 +21,20 @@ import java.util.concurrent.TimeUnit
 class GeminiAIProvider : AIProvider {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-    private val model = "gemini-3.5-flash"
+    private val model = "gemini-2.5-flash"
 
-    private suspend fun callGemini(prompt: String, systemInstruction: String? = null): String? = withContext(Dispatchers.IO) {
+    private suspend fun callGemini(
+        prompt: String,
+        systemInstruction: String? = null,
+        isJsonOutput: Boolean = false,
+        maxTokens: Int = 1024
+    ): String? = withContext(Dispatchers.IO) {
         val apiKey = try {
             BuildConfig.GEMINI_API_KEY
         } catch (_: Exception) {
@@ -49,6 +54,15 @@ class GeminiAIProvider : AIProvider {
             contentObj.put("parts", partsArray)
             contentsArray.put(contentObj)
             rootJson.put("contents", contentsArray)
+
+            // Fast generationConfig
+            val genConfig = JSONObject()
+            genConfig.put("maxOutputTokens", maxTokens)
+            genConfig.put("temperature", if (isJsonOutput) 0.1 else 0.7)
+            if (isJsonOutput) {
+                genConfig.put("responseMimeType", "application/json")
+            }
+            rootJson.put("generationConfig", genConfig)
 
             if (!systemInstruction.isNullOrBlank()) {
                 val sysContent = JSONObject()
@@ -99,10 +113,18 @@ class GeminiAIProvider : AIProvider {
         val systemInstruction = """
             You are MemoAI, a Vietnamese and English personal voice assistant for notes and task management.
             The current reference date and time is: $currentDateTimeContext.
-            Analyze the user's spoken or written request and output STRICT JSON only (no markdown, no ```json formatting):
+
+            STRICT INTENT CLASSIFICATION RULES:
+            1. If the user mentions "ghi chú", "tạo ghi chú", "tạo 1 ghi chú", "tạo một ghi chú", "thêm ghi chú", "viết ghi chú", "lưu ghi chú", "note", "tạo note", "nhớ giúp tôi", "ghi lại", "lưu lại" -> INTENT MUST BE "CREATE_NOTE" (NEVER "CREATE_TASK"!).
+               Extract:
+               - "note": { "title": "Concise clean title without 'tạo ghi chú'", "content": "Full note content", "category": "Cá nhân" | "Công việc" | "Học tập" | "Dự án" | "Tài chính" | "Ý tưởng" | "Khác", "tags": ["tag1"] }
+            2. "CREATE_TASK" is ONLY for tasks with an actionable deadline, reminder, alarm, or to-do schedule (e.g. "nhắc tôi...", "hẹn lịch...", "8h sáng mai nộp báo cáo", "chiều mai họp").
+            3. If user explicitly says "tạo ghi chú" or "tạo 1 ghi chú", it is 100% "CREATE_NOTE".
+
+            Output STRICT JSON only (no markdown, no ```json formatting):
             {
               "intent": "CREATE_TASK" | "CREATE_NOTE" | "COMPLETE_TASK" | "SEARCH_TASK" | "SEARCH_NOTE" | "GENERAL_QUERY",
-              "confidence": 0.95,
+              "confidence": 0.98,
               "explanation": "Brief explanation in Vietnamese of what was understood",
               "task": {
                  "title": "Clean concise task title",
@@ -123,15 +145,21 @@ class GeminiAIProvider : AIProvider {
             }
         """.trimIndent()
 
-        val rawText = callGemini(userPrompt, systemInstruction)
+        val rawText = callGemini(userPrompt, systemInstruction, isJsonOutput = true, maxTokens = 500)
         if (!rawText.isNullOrBlank()) {
             try {
-                val clean = rawText.trim()
-                    .removePrefix("```json")
-                    .removePrefix("```")
-                    .removeSuffix("```")
-                    .trim()
-                val json = JSONObject(clean)
+                val firstBrace = rawText.indexOf('{')
+                val lastBrace = rawText.lastIndexOf('}')
+                val jsonStr = if (firstBrace != -1 && lastBrace > firstBrace) {
+                    rawText.substring(firstBrace, lastBrace + 1)
+                } else {
+                    rawText.trim()
+                        .removePrefix("```json")
+                        .removePrefix("```")
+                        .removeSuffix("```")
+                        .trim()
+                }
+                val json = JSONObject(jsonStr)
                 val intentStr = json.optString("intent", "CREATE_TASK")
                 val intent = try {
                     IntentType.valueOf(intentStr)
@@ -158,6 +186,12 @@ class GeminiAIProvider : AIProvider {
                     )
                 }
 
+                // If CREATE_TASK intent recognized but task object was missing or empty
+                if (intent == IntentType.CREATE_TASK && taskData == null) {
+                    val ruleFallback = RuleBasedNLPFallback.parseIntent(userPrompt, currentDateTimeContext)
+                    taskData = ruleFallback.taskData
+                }
+
                 val noteObj = json.optJSONObject("note")
                 var noteData: ParsedNoteData? = null
                 if (noteObj != null && noteObj.has("title")) {
@@ -174,6 +208,11 @@ class GeminiAIProvider : AIProvider {
                         category = normalizeCategory(noteObj.optString("category", "Cá nhân"), "Cá nhân"),
                         tags = tagsList
                     )
+                }
+
+                if (intent == IntentType.CREATE_NOTE && noteData == null) {
+                    val ruleFallback = RuleBasedNLPFallback.parseIntent(userPrompt, currentDateTimeContext)
+                    noteData = ruleFallback.noteData
                 }
 
                 return AIIntentResult(
@@ -204,10 +243,33 @@ class GeminiAIProvider : AIProvider {
         val todayTasks = currentTasks.filter { it.dueDate == todayStr }
         val upcomingTasks = currentTasks.filter { it.dueDate > todayStr }
         val overdueTasks = currentTasks.filter { it.dueDate < todayStr && it.status != TaskStatus.COMPLETED }
+        val urgentTasks = currentTasks.filter { it.status != TaskStatus.COMPLETED && it.priority == TaskPriority.URGENT }
+        val highTasks = currentTasks.filter { it.status != TaskStatus.COMPLETED && it.priority == TaskPriority.HIGH }
+        val mediumTasks = currentTasks.filter { it.status != TaskStatus.COMPLETED && it.priority == TaskPriority.MEDIUM }
+        val lowTasks = currentTasks.filter { it.status != TaskStatus.COMPLETED && it.priority == TaskPriority.LOW }
 
         val contextInfo = buildString {
             appendLine("--- THÔNG TIN CÔNG VIỆC VÀ GHI CHÚ THỰC TẾ TRONG HỆ THỐNG ---")
             appendLine("Hôm nay là: $todayStr")
+            appendLine("Tổng số công việc hiện có: ${currentTasks.size} việc (${currentTasks.count { it.status != TaskStatus.COMPLETED }} chưa xong)")
+
+            appendLine("\n[TOÀN BỘ CÔNG VIỆC PHÂN THEO MỨC ĐỘ ƯU TIÊN]:")
+            appendLine("- 🔴 KHẨN CẤP (${urgentTasks.size} việc):")
+            if (urgentTasks.isEmpty()) appendLine("  (Không có)")
+            else urgentTasks.forEach { appendLine("  * [Hạn: ${it.dueDate} ${it.dueTime ?: ""}] ${it.title} [Nhóm: ${it.category}]") }
+
+            appendLine("- 🟠 CAO (${highTasks.size} việc):")
+            if (highTasks.isEmpty()) appendLine("  (Không có)")
+            else highTasks.forEach { appendLine("  * [Hạn: ${it.dueDate} ${it.dueTime ?: ""}] ${it.title} [Nhóm: ${it.category}]") }
+
+            appendLine("- 🟡 TRUNG BÌNH (${mediumTasks.size} việc):")
+            if (mediumTasks.isEmpty()) appendLine("  (Không có)")
+            else mediumTasks.forEach { appendLine("  * [Hạn: ${it.dueDate} ${it.dueTime ?: ""}] ${it.title} [Nhóm: ${it.category}]") }
+
+            appendLine("- 🟢 THẤP (${lowTasks.size} việc):")
+            if (lowTasks.isEmpty()) appendLine("  (Không có)")
+            else lowTasks.forEach { appendLine("  * [Hạn: ${it.dueDate} ${it.dueTime ?: ""}] ${it.title} [Nhóm: ${it.category}]") }
+
             appendLine("\n[CÔNG VIỆC HÔM NAY (${todayTasks.size})]:")
             if (todayTasks.isEmpty()) {
                 appendLine("Không có công việc nào hôm nay.")
@@ -240,12 +302,13 @@ class GeminiAIProvider : AIProvider {
 
         val systemInstruction = """
             Bạn là MemoAI — Trợ lý cá nhân thông minh quản lý ghi chú và công việc của người dùng (tên mặc định là Khương).
-            Quy tắc:
-            1. Trả lời bằng tiếng Việt thân thiện, rõ ràng, gãy gọn, ưu tiên hiển thị dạng danh sách và emoji dễ nhìn.
-            2. Sử dụng 100% dữ liệu thực tế được cung cấp bên dưới để trả lời các câu hỏi như 'Hôm nay tôi phải làm gì?', 'Việc nào quan trọng nhất?', v.v.
-            3. Tuyệt đối không bịa đặt task không có trong danh sách. Nếu hôm nay không có việc, hãy chúc mừng người dùng thong thả hoặc nhắc các việc sắp tới.
-            4. Khi người dùng hỏi việc quan trọng nhất, hãy dựa vào priority (URGENT > HIGH > MEDIUM > LOW) và deadline để phân tích.
-            5. Không tự ý sửa đổi task nếu người dùng chỉ hỏi thông tin.
+            Quy tắc giao tiếp & định dạng:
+            1. Trả lời bằng tiếng Việt tự nhiên, thân thiện, lịch sự, văn phong thanh lịch và chuẩn mực. Tránh văn phong thô ráp hay cộc lốc.
+            2. Trình bày nội dung đẹp mắt với định dạng Markdown: dùng gạch đầu dòng rõ ràng (- hoặc *), in đậm tiêu đề quan trọng (**tiêu đề**), kèm các biểu tượng emoji tinh tế (📌, ⏰, ⚡, 💡, 🎯, ✨).
+            3. Sử dụng 100% dữ liệu thực tế được cung cấp bên dưới để trả lời các câu hỏi như 'Hôm nay tôi phải làm gì?', 'Việc nào quan trọng nhất?', 'Xếp loại tất cả công việc từ khẩn cấp đến thấp', v.v.
+            4. Tuyệt đối không bịa đặt task không có trong danh sách. Nếu hôm nay không có việc, hãy chúc mừng người dùng thong thả hoặc nhắc các việc sắp tới.
+            5. Khi người dùng yêu cầu xếp loại, phân loại hoặc sắp xếp công việc theo mức độ ưu tiên, hãy phân tích và trình bày danh sách chi tiết theo thứ tự: 🔴 Khẩn cấp -> 🟠 Cao -> 🟡 Trung bình -> 🟢 Thấp kèm thời hạn.
+            6. Nếu người dùng đưa ra yêu cầu tạo công việc hoặc ghi chú, hệ thống MemoAI đã tự động lưu trữ vào cơ sở dữ liệu. Nếu bạn phản hồi, hãy tóm tắt lịch sự và nhắc người dùng xem tab Công việc hoặc Lịch trình.
             
             $contextInfo
         """.trimIndent()
@@ -258,7 +321,7 @@ class GeminiAIProvider : AIProvider {
             appendLine("User: $userMessage")
         }
 
-        val aiResponse = callGemini(promptWithHistory, systemInstruction)
+        val aiResponse = callGemini(promptWithHistory, systemInstruction, isJsonOutput = false, maxTokens = 800)
         if (!aiResponse.isNullOrBlank()) {
             return aiResponse
         }
@@ -266,6 +329,31 @@ class GeminiAIProvider : AIProvider {
         // Local intelligent response fallback if offline or no API key
         val lower = userMessage.lowercase()
         return when {
+            lower.contains("xếp loại") || lower.contains("phân loại") || lower.contains("sắp xếp") ||
+                    (lower.contains("tất cả") && lower.contains("công việc")) || lower.contains("từ khẩn cấp") -> {
+                if (currentTasks.isEmpty()) {
+                    "Hiện tại bạn chưa có công việc nào trong danh sách. Hãy tạo công việc mới để tôi giúp bạn theo dõi nhé! ✨"
+                } else {
+                    buildString {
+                        appendLine("📊 Dưới đây là phân loại toàn bộ công việc của bạn theo mức độ ưu tiên từ Khẩn cấp đến Thấp:\n")
+                        appendLine("🔴 **1. Mức Khẩn cấp (${urgentTasks.size} việc):**")
+                        if (urgentTasks.isEmpty()) appendLine("  _Không có công việc khẩn cấp nào._")
+                        else urgentTasks.forEach { appendLine("  • **${it.title}** (Hạn: ${it.dueDate} ${it.dueTime ?: ""}) [${it.category}]") }
+
+                        appendLine("\n🟠 **2. Mức Cao (${highTasks.size} việc):**")
+                        if (highTasks.isEmpty()) appendLine("  _Không có công việc mức cao nào._")
+                        else highTasks.forEach { appendLine("  • **${it.title}** (Hạn: ${it.dueDate} ${it.dueTime ?: ""}) [${it.category}]") }
+
+                        appendLine("\n🟡 **3. Mức Trung bình (${mediumTasks.size} việc):**")
+                        if (mediumTasks.isEmpty()) appendLine("  _Không có công việc mức trung bình._")
+                        else mediumTasks.forEach { appendLine("  • **${it.title}** (Hạn: ${it.dueDate} ${it.dueTime ?: ""}) [${it.category}]") }
+
+                        appendLine("\n🟢 **4. Mức Thấp (${lowTasks.size} việc):**")
+                        if (lowTasks.isEmpty()) appendLine("  _Không có công việc mức thấp._")
+                        else lowTasks.forEach { appendLine("  • **${it.title}** (Hạn: ${it.dueDate} ${it.dueTime ?: ""}) [${it.category}]") }
+                    }
+                }
+            }
             lower.contains("hôm nay") || lower.contains("phải làm gì") || lower.contains("làm gì hôm nay") -> {
                 if (todayTasks.isEmpty()) {
                     "🎉 Hôm nay ($todayStr) bạn không có công việc nào trong lịch trình! Bạn có muốn ghi chú ý tưởng mới hoặc lên lịch cho ngày mai không?"
@@ -324,7 +412,7 @@ class GeminiAIProvider : AIProvider {
         """.trimIndent()
 
         val prompt = "Tiêu đề: $noteTitle\nNội dung: $noteContent"
-        val response = callGemini(prompt, systemInstruction)
+        val response = callGemini(prompt, systemInstruction, isJsonOutput = true, maxTokens = 600)
         if (!response.isNullOrBlank()) {
             try {
                 val clean = response.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
@@ -376,7 +464,7 @@ class GeminiAIProvider : AIProvider {
         """.trimIndent()
 
         val prompt = "Tiêu đề: $noteTitle\nNội dung:\n$noteContent"
-        val response = callGemini(prompt, systemInstruction)
+        val response = callGemini(prompt, systemInstruction, isJsonOutput = true, maxTokens = 800)
         if (!response.isNullOrBlank()) {
             try {
                 val clean = response.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()

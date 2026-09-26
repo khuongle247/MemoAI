@@ -14,9 +14,16 @@ object RuleBasedNLPFallback {
         val today = LocalDate.now()
         val now = LocalTime.now()
 
-        // 1. Detect Note Intent
-        val isNote = lower.startsWith("ghi chú") ||
-                lower.startsWith("note") ||
+        // 1. Detect Note Intent (PRIORITY: Note keywords must trigger CREATE_NOTE)
+        val isNote = lower.contains("ghi chú") ||
+                lower.contains("tạo 1 ghi chú") ||
+                lower.contains("tạo một ghi chú") ||
+                lower.contains("tạo ghi chú") ||
+                lower.contains("thêm ghi chú") ||
+                lower.contains("viết ghi chú") ||
+                lower.contains("lưu ghi chú") ||
+                lower.contains("note") ||
+                lower.contains("tạo note") ||
                 lower.contains("nhớ giúp tôi") ||
                 lower.contains("ghi lại") ||
                 lower.contains("ý tưởng") ||
@@ -24,34 +31,104 @@ object RuleBasedNLPFallback {
                 lower.contains("lưu lại")
 
         if (isNote) {
-            var content = prompt
-                .replace(Regex("^(ghi chú rằng|ghi chú là|ghi chú|nhớ giúp tôi là|nhớ giúp tôi|note lại|lưu lại|ghi lại ý tưởng này là|ghi lại)\\s*", RegexOption.IGNORE_CASE), "")
+            var rawBody = prompt
+                .replace(
+                    Regex(
+                        "^(tạo\\s*(cho tôi|giúp tôi)?\\s*(1|một)?\\s*ghi chú\\s*(mới)?\\s*(là|rằng|với nội dung|nội dung|:)?|" +
+                        "thêm\\s*(cho tôi|giúp tôi)?\\s*(1|một)?\\s*ghi chú\\s*(mới)?\\s*(là|rằng|với nội dung|nội dung|:)?|" +
+                        "viết\\s*(1|một)?\\s*ghi chú\\s*(là|rằng|:)?|" +
+                        "lưu\\s*(1|một)?\\s*ghi chú\\s*(là|rằng|:)?|" +
+                        "ghi chú\\s*(rằng|là|mới là|mới|:)?|" +
+                        "tạo\\s*(1|một)?\\s*note\\s*(là|rằng|:)?|" +
+                        "thêm\\s*(1|một)?\\s*note\\s*(là|rằng|:)?|" +
+                        "note\\s*(lại là|lại|rằng|là|:)?|" +
+                        "nhớ giúp tôi\\s*(là|rằng|:)?|" +
+                        "ghi lại\\s*(ý tưởng này là|ý tưởng|là|rằng|:)?|" +
+                        "lưu lại\\s*(rằng|là|:)?)\\s*",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
                 .trim()
-            if (content.isEmpty()) content = prompt
+            if (rawBody.isEmpty()) rawBody = prompt
 
-            val title = if (content.length > 40) {
-                val firstDot = content.indexOf('.')
-                if (firstDot in 5..40) content.substring(0, firstDot)
-                else content.take(35) + "..."
+            var extractedTitle = ""
+            var extractedContent = ""
+
+            // Pattern 1: "Tiêu đề [X] nội dung (là) [Y]"
+            val titleFirstRegex = Regex("(?:có\\s*)?tiêu đề\\s*(?:là|:)?\\s*(.+?)\\s+(?:với\\s*)?nội dung\\s*(?:là|:)?\\s*(.+)", RegexOption.IGNORE_CASE)
+            val matchTitleFirst = titleFirstRegex.find(rawBody)
+
+            // Pattern 2: "Nội dung (là) [X] tiêu đề (là) [Y]"
+            val contentFirstRegex = Regex("(?:với\\s*)?nội dung\\s*(?:là|:)?\\s*(.+?)\\s+(?:có\\s*)?tiêu đề\\s*(?:là|:)?\\s*(.+)", RegexOption.IGNORE_CASE)
+            val matchContentFirst = contentFirstRegex.find(rawBody)
+
+            if (matchTitleFirst != null) {
+                extractedTitle = matchTitleFirst.groupValues[1].trim()
+                extractedContent = matchTitleFirst.groupValues[2].trim()
+            } else if (matchContentFirst != null) {
+                extractedContent = matchContentFirst.groupValues[1].trim()
+                extractedTitle = matchContentFirst.groupValues[2].trim()
             } else {
-                content.take(40)
+                // If user specifies only "tiêu đề (là) [X]"
+                val onlyTitleRegex = Regex("^(?:có\\s*)?tiêu đề\\s*(?:là|:)?\\s*(.+)", RegexOption.IGNORE_CASE)
+                val onlyTitleMatch = onlyTitleRegex.find(rawBody)
+
+                // If user specifies only "nội dung (là) [X]"
+                val onlyContentRegex = Regex("^(?:với\\s*)?nội dung\\s*(?:là|:)?\\s*(.+)", RegexOption.IGNORE_CASE)
+                val onlyContentMatch = onlyContentRegex.find(rawBody)
+
+                if (onlyTitleMatch != null) {
+                    val full = onlyTitleMatch.groupValues[1].trim()
+                    extractedTitle = full
+                    extractedContent = full
+                } else if (onlyContentMatch != null) {
+                    val full = onlyContentMatch.groupValues[1].trim()
+                    extractedContent = full
+                    extractedTitle = if (full.length > 40) {
+                        val firstSentence = full.split(".", "\n", ",", ";").firstOrNull()?.trim() ?: ""
+                        if (firstSentence.length in 5..40) firstSentence
+                        else full.take(35).trim() + "..."
+                    } else full
+                } else {
+                    extractedContent = rawBody
+                    extractedTitle = if (rawBody.length > 40) {
+                        val firstSentence = rawBody.split(".", "\n", ",", ";").firstOrNull()?.trim() ?: ""
+                        if (firstSentence.length in 5..40) firstSentence
+                        else rawBody.take(35).trim() + "..."
+                    } else {
+                        rawBody
+                    }
+                }
             }
 
+            // Strip any remaining structural markers
+            extractedTitle = extractedTitle
+                .replace(Regex("^(tiêu đề\\s*(?:là|:)?|nội dung\\s*(?:là|:)?)\\s*", RegexOption.IGNORE_CASE), "")
+                .trim()
+            extractedContent = extractedContent
+                .replace(Regex("^(nội dung\\s*(?:là|:)?|tiêu đề\\s*(?:là|:)?)\\s*", RegexOption.IGNORE_CASE), "")
+                .trim()
+
+            if (extractedTitle.isEmpty()) extractedTitle = extractedContent.take(35)
+            if (extractedContent.isEmpty()) extractedContent = extractedTitle
+
             val category = when {
-                lower.contains("wifi") || lower.contains("nhà") -> "Cá nhân"
-                lower.contains("học") || lower.contains("bài") -> "Học tập"
+                lower.contains("wifi") || lower.contains("nhà") || lower.contains("mua") -> "Cá nhân"
+                lower.contains("học") || lower.contains("bài") || lower.contains("sách") -> "Học tập"
                 lower.contains("code") || lower.contains("dự án") || lower.contains("project") -> "Dự án"
                 lower.contains("tiền") || lower.contains("chi") || lower.contains("lương") -> "Tài chính"
+                lower.contains("công việc") || lower.contains("họp") || lower.contains("báo cáo") -> "Công việc"
                 else -> "Ý tưởng"
             }
 
             return AIIntentResult(
                 intent = IntentType.CREATE_NOTE,
-                confidence = 0.88f,
+                confidence = 0.98f,
                 explanation = "Phát hiện ý định tạo Ghi chú từ giọng nói/văn bản.",
                 noteData = ParsedNoteData(
-                    title = title.replaceFirstChar { it.uppercase() },
-                    content = content,
+                    title = extractedTitle.replaceFirstChar { it.uppercase() },
+                    content = extractedContent.replaceFirstChar { it.uppercase() },
                     category = category,
                     tags = listOf(category.lowercase())
                 ),
@@ -59,23 +136,68 @@ object RuleBasedNLPFallback {
             )
         }
 
-        // 2. Detect Search / Query Tasks
-        if (lower.contains("hôm nay tôi phải làm gì") ||
-            lower.contains("hôm nay làm gì") ||
-            lower.contains("xem công việc") ||
-            lower.contains("cho tôi xem hôm nay") ||
-            lower.contains("việc cần làm")
-        ) {
+        // 2. Detect Analysis / Query / Ranking / Questions (MUST NOT BECOME A TASK!)
+        val isQueryOrAnalysis = lower.contains("xếp loại") ||
+                lower.contains("sắp xếp") ||
+                lower.contains("phân loại") ||
+                lower.contains("liệt kê") ||
+                lower.contains("danh sách") ||
+                lower.contains("tổng kết") ||
+                lower.contains("tóm tắt") ||
+                lower.contains("phân tích") ||
+                lower.contains("đánh giá") ||
+                lower.contains("việc nào") ||
+                lower.contains("làm gì hôm nay") ||
+                lower.contains("hôm nay làm gì") ||
+                lower.contains("hôm nay tôi phải làm gì") ||
+                lower.contains("xem công việc") ||
+                lower.contains("cho tôi xem") ||
+                lower.contains("có những việc gì") ||
+                lower.contains("gợi ý") ||
+                lower.contains("tư vấn") ||
+                lower.contains("giúp tôi lên kế hoạch") ||
+                lower.contains("thế nào") ||
+                lower.contains("như thế nào") ||
+                lower.contains("tại sao") ||
+                lower.contains("làm sao") ||
+                lower.endsWith("?") ||
+                lower.endsWith("ạ?")
+
+        if (isQueryOrAnalysis) {
             return AIIntentResult(
-                intent = IntentType.SEARCH_TASK,
+                intent = IntentType.GENERAL_QUERY,
                 confidence = 0.95f,
-                explanation = "Tìm kiếm danh sách công việc trong ngày hôm nay.",
-                searchQuery = today.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                explanation = "Yêu cầu hỏi đáp / phân tích công việc cho Trợ lý AI",
                 rawPrompt = prompt
             )
         }
 
-        // 3. Detect Task Intent (Default or specific)
+        // 3. Detect Task Intent ONLY if user explicitly wants to create / schedule a task
+        val isExplicitTaskCreation = lower.startsWith("tạo việc") ||
+                lower.startsWith("tạo nhiệm vụ") ||
+                lower.startsWith("thêm việc") ||
+                lower.startsWith("thêm nhiệm vụ") ||
+                lower.startsWith("tạo task") ||
+                lower.startsWith("thêm task") ||
+                lower.startsWith("lên lịch") ||
+                lower.startsWith("đặt lịch") ||
+                lower.contains("nhắc tôi") ||
+                lower.contains("nhắc việc") ||
+                lower.contains("hẹn lịch") ||
+                lower.contains("hẹn giờ") ||
+                lower.contains("báo thức") ||
+                lower.startsWith("hẹn ") ||
+                (lower.contains("ngày mai") || lower.contains("chiều mai") || lower.contains("sáng mai") || lower.contains("tối mai"))
+
+        if (!isExplicitTaskCreation) {
+            return AIIntentResult(
+                intent = IntentType.GENERAL_QUERY,
+                confidence = 0.85f,
+                explanation = "Yêu cầu hội thoại / hỏi đáp cho Trợ lý AI",
+                rawPrompt = prompt
+            )
+        }
+
         var targetDate = today
         var targetTime: LocalTime? = null
         var reminderMinutes = 0
@@ -166,13 +288,17 @@ object RuleBasedNLPFallback {
 
         // Extract title
         var cleanTitle = prompt
+            .replace(Regex("^(lên cho tôi|tạo cho tôi|thêm cho tôi|lên lịch cho tôi|lên lịch|lên|tạo|thêm|đặt lịch|hẹn lịch)\\s*(1|một)?\\s*(nhiệm vụ|công việc|task|việc)?\\s*", RegexOption.IGNORE_CASE), "")
             .replace(Regex("^(ngày mai|ngày kia|mai|hôm nay|thứ [2-7]|chủ nhật)\\s*", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("(lúc|vào lúc)?\\s*\\d{1,2}\\s*(?:giờ|h)(?:\\s*\\d{1,2})?\\s*(sáng|trưa|chiều|tối)?", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("(lúc|vào lúc)?\\s*\\d{1,2}\\s*(?:giờ|h)(?:\\s*\\d{1,2})?\\s*(sáng|trưa|chiều|tối)?\\s*(nay|mai)?", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\d{1,2}:\\d{2}", RegexOption.IGNORE_CASE), "")
             .replace(Regex("nhớ nhắc tôi|nhắc tôi|nhắc|hãy nhắc|giúp tôi", RegexOption.IGNORE_CASE), "")
             .replace(Regex("trong \\d+\\s*(tiếng|phút|giờ)", RegexOption.IGNORE_CASE), "")
             .replace(Regex("và nhắc tôi trước \\d+\\s*(phút|tiếng)", RegexOption.IGNORE_CASE), "")
             .replace(Regex("nhắc trước \\d+\\s*(phút|tiếng)", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^(nội dung là|nội dung|với nội dung là|với nội dung|về việc là|về việc)\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex(",\\s*(nội dung là|nội dung|với nội dung là|với nội dung|về việc là|về việc)\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^(có\\s*)?tiêu đề\\s*(?:là|:)?\\s*", RegexOption.IGNORE_CASE), "")
             .trim()
 
         if (cleanTitle.isEmpty() || cleanTitle.length < 3) {

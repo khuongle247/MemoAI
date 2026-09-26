@@ -14,6 +14,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -25,7 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +84,8 @@ fun MainAppContent(
     intent: Intent?
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     // State collections
@@ -117,6 +124,7 @@ fun MainAppContent(
     // User feedback snackbar
     LaunchedEffect(userFeedback) {
         userFeedback?.let { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
             snackbarHostState.showSnackbar(msg)
             viewModel.clearFeedback()
         }
@@ -213,7 +221,16 @@ fun MainAppContent(
                                     contentDescription = screen.title
                                 )
                             },
-                            label = { Text(screen.title, fontSize = 11.sp) },
+                            label = {
+                                Text(
+                                    text = screen.title,
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            alwaysShowLabel = true,
                             modifier = Modifier.testTag("nav_${screen.route}")
                         )
                     }
@@ -294,7 +311,17 @@ fun MainAppContent(
         },
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+        ) {
             when (currentScreen) {
                 Screen.Home -> {
                     HomeScreen(
@@ -414,6 +441,8 @@ fun MainAppContent(
                         onUpdateSound = { viewModel.settingsRepository.updateSound(it) },
                         onUpdateVibration = { viewModel.settingsRepository.updateVibration(it) },
                         onUpdateUserName = { viewModel.settingsRepository.updateUserName(it) },
+                        onUpdateNotificationSound = { uri, name -> viewModel.updateNotificationSound(uri, name) },
+                        onTestNotification = { viewModel.testNotification() },
                         onExportData = { viewModel.exportDataJson() },
                         onClearAllData = { viewModel.clearAllData() },
                         onBack = { currentScreen = Screen.Home }
@@ -440,7 +469,13 @@ fun MainAppContent(
             onStopListening = { viewModel.stopVoiceInput() },
             onSubmitPrompt = { prompt ->
                 showVoiceModal = false
-                viewModel.processSpokenText(prompt)
+                if (currentScreen == Screen.Assistant) {
+                    viewModel.sendChatMessage(prompt)
+                } else {
+                    viewModel.processSpokenText(prompt) {
+                        currentScreen = Screen.Assistant
+                    }
+                }
             },
             onDismiss = {
                 showVoiceModal = false

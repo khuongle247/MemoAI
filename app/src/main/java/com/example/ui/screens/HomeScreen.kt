@@ -65,9 +65,18 @@ fun HomeScreen(
     }
 
     val todayFormatted = remember {
-        LocalDate.now().format(
-            DateTimeFormatter.ofPattern("EEEE, 'ngày' dd 'tháng' MM", Locale.forLanguageTag("vi-VN"))
-        ).replaceFirstChar { it.uppercase() }
+        val date = LocalDate.now()
+        val dayOfWeek = when (date.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "Thứ 2"
+            java.time.DayOfWeek.TUESDAY -> "Thứ 3"
+            java.time.DayOfWeek.WEDNESDAY -> "Thứ 4"
+            java.time.DayOfWeek.THURSDAY -> "Thứ 5"
+            java.time.DayOfWeek.FRIDAY -> "Thứ 6"
+            java.time.DayOfWeek.SATURDAY -> "Thứ 7"
+            java.time.DayOfWeek.SUNDAY -> "Chủ nhật"
+        }
+        val dayMonth = date.format(DateTimeFormatter.ofPattern("dd/MM"))
+        "$dayOfWeek, $dayMonth"
     }
 
     val completedCount = todayTasks.count { it.status == TaskStatus.COMPLETED }
@@ -100,7 +109,7 @@ fun HomeScreen(
                         // User Avatar
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(
@@ -115,13 +124,13 @@ fun HomeScreen(
                         ) {
                             Text(
                                 text = userInitial,
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+                        Spacer(modifier = Modifier.width(MaterialTheme.spacing.small))
 
                         Column {
                             Text(
@@ -134,7 +143,9 @@ fun HomeScreen(
                             Text(
                                 text = todayFormatted,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -143,26 +154,26 @@ fun HomeScreen(
                     FilledTonalIconButton(
                         onClick = onOpenStats,
                         modifier = Modifier
-                            .size(MaterialTheme.spacing.minTouchTarget)
+                            .size(38.dp)
                             .testTag("home_stats_button")
                     ) {
                         Icon(
                             Icons.Default.BarChart,
                             contentDescription = "Thống kê",
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.extraSmall))
+                    Spacer(modifier = Modifier.width(6.dp))
                     FilledTonalIconButton(
                         onClick = onOpenSettings,
                         modifier = Modifier
-                            .size(MaterialTheme.spacing.minTouchTarget)
+                            .size(38.dp)
                             .testTag("home_settings_button")
                     ) {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Cài đặt",
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 },
@@ -177,18 +188,18 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = MaterialTheme.spacing.large),
+                .padding(horizontal = 14.dp),
             contentPadding = PaddingValues(bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.large)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Hero AI Banner
             item {
                 Card(
-                    shape = MaterialTheme.shapes.extraLarge,
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                    shape = MaterialTheme.shapes.large,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.extraLarge)
+                        .clip(MaterialTheme.shapes.large)
                         .clickable { onOpenVoiceModal() }
                         .testTag("home_ai_voice_card")
                 ) {
@@ -196,7 +207,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(if (isDark) HeroGradientDark else HeroGradient)
-                            .padding(MaterialTheme.spacing.large)
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -204,13 +215,13 @@ fun HomeScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Surface(
-                                    shape = MaterialTheme.shapes.small,
+                                    shape = MaterialTheme.shapes.extraSmall,
                                     color = Color.White.copy(alpha = 0.22f)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(
-                                            horizontal = MaterialTheme.spacing.small,
-                                            vertical = MaterialTheme.spacing.extraSmall
+                                            horizontal = 6.dp,
+                                            vertical = 2.dp
                                         ),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -218,11 +229,11 @@ fun HomeScreen(
                                             Icons.Default.AutoAwesome,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(12.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(MaterialTheme.spacing.extraSmall))
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "AI Smart Capture",
+                                            text = "AI Voice Assistant",
                                             color = Color.White,
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold
@@ -230,29 +241,33 @@ fun HomeScreen(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(MaterialTheme.spacing.small))
+                                Spacer(modifier = Modifier.height(4.dp))
 
                                 Text(
-                                    text = "Lên lịch & Ghi chú bằng Giọng nói",
+                                    text = "Trợ lý AI & Lên lịch nhanh",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Nhấn để nói: \"Nhắc nộp bài lúc 9h sáng mai\"",
+                                    text = "Chạm để nói: \"Nhắc nộp bài lúc 9h sáng mai\"",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.9f)
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+                            Spacer(modifier = Modifier.width(10.dp))
 
                             // Glowing Mic Action Button
                             Box(
                                 modifier = Modifier
-                                    .size(54.dp)
-                                    .shadow(elevation = 6.dp, shape = CircleShape)
+                                    .size(46.dp)
+                                    .shadow(elevation = 4.dp, shape = CircleShape)
                                     .clip(CircleShape)
                                     .background(Color.White),
                                 contentAlignment = Alignment.Center
@@ -261,7 +276,7 @@ fun HomeScreen(
                                     imageVector = Icons.Default.Mic,
                                     contentDescription = "Thu âm",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -273,7 +288,7 @@ fun HomeScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.medium)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Card 1: Today Progress
                     Card(
@@ -287,27 +302,29 @@ fun HomeScreen(
                         ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(MaterialTheme.spacing.large)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "Tiến độ hôm nay",
+                                    text = "Tiến độ",
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Icon(
                                     Icons.Default.CheckCircle,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.small))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             Text(
                                 text = "${(animatedProgress * 100).toInt()}%",
@@ -316,15 +333,18 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
+                            Spacer(modifier = Modifier.height(2.dp))
 
                             Text(
-                                text = "$completedCount/$totalToday việc hoàn thành",
+                                text = "$completedCount/$totalToday hoàn thành",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.small))
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             LinearProgressIndicator(
                                 progress = { animatedProgress },
@@ -350,27 +370,29 @@ fun HomeScreen(
                         ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(MaterialTheme.spacing.large)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "Nhiệm vụ còn lại",
+                                    text = "Còn lại",
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Icon(
                                     Icons.AutoMirrored.Filled.TrendingUp,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.small))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             Text(
                                 text = "$pendingCount",
@@ -379,16 +401,19 @@ fun HomeScreen(
                                 color = if (pendingCount == 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                             )
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
+                            Spacer(modifier = Modifier.height(2.dp))
 
                             Text(
-                                text = if (pendingCount == 0 && totalToday > 0) "Đã hoàn thành hết! 🎉"
+                                text = if (pendingCount == 0 && totalToday > 0) "Xong hết! 🎉"
                                 else "${upcomingTasks.size} việc sắp tới",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
 
-                            Spacer(modifier = Modifier.height(MaterialTheme.spacing.small))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             Surface(
                                 shape = MaterialTheme.shapes.extraSmall,
@@ -396,13 +421,16 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "📌 ${pinnedNotes.size} ghi chú đã ghim",
+                                    text = "📌 ${pinnedNotes.size} ghi chú ghim",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(
-                                        horizontal = MaterialTheme.spacing.small,
-                                        vertical = MaterialTheme.spacing.extraSmall
+                                        horizontal = 6.dp,
+                                        vertical = 3.dp
                                     )
                                 )
                             }
@@ -494,14 +522,14 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(MaterialTheme.spacing.medium))
 
                             Text(
-                                text = if (selectedCategoryFilter == "Tất cả") "Tuyệt vời! Không còn việc tồn đọng"
-                                else "Không có việc nào trong mục \"$selectedCategoryFilter\"",
+                                text = if (selectedCategoryFilter == "Tất cả") "Không còn việc tồn đọng 🎉"
+                                else "Không có việc trong \"$selectedCategoryFilter\"",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
                             Text(
-                                text = "Dùng nút (+) hoặc AI Voice để tạo công việc mới bất cứ lúc nào.",
+                                text = "Dùng nút (+) hoặc AI Voice để tạo công việc mới.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -528,9 +556,11 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Sắp tới (Upcoming)",
+                            text = "Việc sắp tới",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Text(
                             text = "${upcomingTasks.size} việc",

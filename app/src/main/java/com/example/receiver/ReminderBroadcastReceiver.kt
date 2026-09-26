@@ -5,7 +5,9 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
@@ -23,6 +25,13 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
         val taskId = intent.getLongExtra(ReminderManager.EXTRA_TASK_ID, -1L)
         val title = intent.getStringExtra(ReminderManager.EXTRA_TASK_TITLE) ?: "Công việc đến hạn"
         val time = intent.getStringExtra(ReminderManager.EXTRA_TASK_TIME) ?: ""
+
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "memoai:ReminderWakeLock"
+        )
+        wakeLock?.acquire(10_000L) // Keep CPU awake for up to 10 seconds to ensure prompt delivery
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -120,18 +129,42 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
         )
 
         val timeText = if (time.isNotBlank()) " lúc $time" else ""
-        val notification = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
+        val app = context.applicationContext as? MemoApplication
+        val soundUri = app?.reminderManager?.getSoundUri()
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val soundEnabled = app?.reminderManager?.isSoundEnabled() ?: true
+        val vibrationEnabled = app?.reminderManager?.isVibrationEnabled() ?: true
+
+        // Ensure ringtone plays when alarm triggers if sound enabled
+        if (soundEnabled) {
+            try {
+                val ringtone = RingtoneManager.getRingtone(context, soundUri)
+                ringtone?.play()
+            } catch (e: Exception) {
+                Log.w("ReminderReceiver", "Cannot play ringtone directly: ${e.message}")
+            }
+        }
+
+        val builder = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("🔔 $title")
             .setContentText("Đã đến thời gian thực hiện công việc$timeText.")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(contentPendingIntent, true)
             .setAutoCancel(true)
             .setContentIntent(contentPendingIntent)
             .addAction(android.R.drawable.checkbox_on_background, "Hoàn thành", completePendingIntent)
             .addAction(android.R.drawable.ic_popup_sync, "Hoãn 10 phút", snoozePendingIntent)
-            .build()
 
-        notificationManager.notify(taskId.toInt(), notification)
+        if (soundEnabled) {
+            builder.setSound(soundUri)
+        }
+        if (vibrationEnabled) {
+            builder.setVibrate(longArrayOf(0, 350, 200, 350))
+        }
+
+        notificationManager.notify(taskId.toInt(), builder.build())
     }
 }

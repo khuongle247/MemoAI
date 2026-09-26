@@ -5,6 +5,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -24,11 +26,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.ui.ChatMessage
 import com.example.ui.theme.spacing
 
@@ -43,6 +52,8 @@ fun AssistantScreen(
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val quickQuestions = listOf(
         "📋 Hôm nay tôi phải làm gì?",
@@ -245,7 +256,14 @@ fun AssistantScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                },
             contentPadding = PaddingValues(
                 horizontal = MaterialTheme.spacing.large,
                 vertical = MaterialTheme.spacing.medium
@@ -335,13 +353,16 @@ fun ChatBubbleItem(message: ChatMessage) {
     val isUser = message.sender == "user"
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
     ) {
         if (!isUser) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
@@ -350,7 +371,7 @@ fun ChatBubbleItem(message: ChatMessage) {
                     Icons.Default.AutoAwesome,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
             Spacer(modifier = Modifier.width(MaterialTheme.spacing.small))
@@ -358,13 +379,14 @@ fun ChatBubbleItem(message: ChatMessage) {
 
         Box(
             modifier = Modifier
-                .widthIn(max = 280.dp)
+                .weight(1f, fill = false)
+                .widthIn(min = 48.dp, max = 540.dp)
                 .clip(
                     RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isUser) 16.dp else 4.dp,
-                        bottomEnd = if (isUser) 4.dp else 16.dp
+                        topStart = 18.dp,
+                        topEnd = 18.dp,
+                        bottomStart = if (isUser) 18.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 18.dp
                     )
                 )
                 .background(
@@ -372,29 +394,166 @@ fun ChatBubbleItem(message: ChatMessage) {
                         Brush.linearGradient(
                             listOf(
                                 MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
                             )
                         )
                     } else {
                         Brush.linearGradient(
                             listOf(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                             )
                         )
                     }
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isUser) Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(
+                        topStart = 18.dp,
+                        topEnd = 18.dp,
+                        bottomStart = if (isUser) 18.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 18.dp
+                    )
                 )
                 .padding(
                     horizontal = MaterialTheme.spacing.large,
                     vertical = MaterialTheme.spacing.medium
                 )
         ) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isUser) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (isUser) FontWeight.Medium else FontWeight.Normal
-            )
+            MarkdownChatMessage(text = message.text, isUser = isUser)
+        }
+
+        if (isUser) {
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.small))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MarkdownChatMessage(text: String, isUser: Boolean) {
+    val lines = remember(text) { text.lines() }
+    val boldColor = if (isUser) Color.White else MaterialTheme.colorScheme.primary
+    val textColor = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        lines.forEach { line ->
+            val trimmed = line.trim()
+            val numberedMatch = Regex("^(\\d+)[.)]\\s+(.*)").find(trimmed)
+
+            when {
+                trimmed.isEmpty() -> {
+                    Spacer(modifier = Modifier.height(3.dp))
+                }
+                trimmed.startsWith("* ") || trimmed.startsWith("- ") || trimmed.startsWith("• ") -> {
+                    val content = trimmed.substring(2).trim()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 1.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 8.dp, end = 8.dp)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(boldColor)
+                        )
+                        Text(
+                            text = parseBoldMarkdown(content, boldColor),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = textColor,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                numberedMatch != null -> {
+                    val num = numberedMatch.groupValues[1]
+                    val content = numberedMatch.groupValues[2]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = boldColor.copy(alpha = if (isUser) 0.3f else 0.15f),
+                            modifier = Modifier.padding(end = 8.dp, top = 2.dp)
+                        ) {
+                            Text(
+                                text = num,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = boldColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                        Text(
+                            text = parseBoldMarkdown(content, boldColor),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = textColor,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                trimmed.startsWith("### ") || trimmed.startsWith("## ") || trimmed.startsWith("# ") -> {
+                    val heading = trimmed.replace(Regex("^#+\\s*"), "")
+                    Text(
+                        text = parseBoldMarkdown(heading, boldColor),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, lineHeight = 22.sp),
+                        color = boldColor,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                    )
+                }
+                else -> {
+                    Text(
+                        text = parseBoldMarkdown(trimmed, boldColor),
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                        color = textColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun parseBoldMarkdown(text: String, boldColor: Color): AnnotatedString {
+    return buildAnnotatedString {
+        val parts = text.split("**")
+        for (i in parts.indices) {
+            if (i % 2 == 1) {
+                // Bold span
+                withStyle(
+                    SpanStyle(
+                        fontWeight = FontWeight.Bold,
+                        color = boldColor
+                    )
+                ) {
+                    append(parts[i])
+                }
+            } else {
+                append(parts[i])
+            }
         }
     }
 }

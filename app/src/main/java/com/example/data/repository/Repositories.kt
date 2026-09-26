@@ -77,6 +77,8 @@ data class AppSettings(
     val defaultReminderMinutes: Int = 15,
     val soundEnabled: Boolean = true,
     val vibrationEnabled: Boolean = true,
+    val soundUri: String = "",
+    val soundName: String = "Mặc định hệ thống",
     val aiProvider: String = "Gemini",
     val userName: String = "Khương"
 )
@@ -94,6 +96,8 @@ class SettingsRepository(context: Context) {
             defaultReminderMinutes = prefs.getInt("default_reminder", 15),
             soundEnabled = prefs.getBoolean("sound_enabled", true),
             vibrationEnabled = prefs.getBoolean("vibration_enabled", true),
+            soundUri = prefs.getString("sound_uri", "") ?: "",
+            soundName = prefs.getString("sound_name", "Mặc định hệ thống") ?: "Mặc định hệ thống",
             aiProvider = prefs.getString("ai_provider", "Gemini") ?: "Gemini",
             userName = prefs.getString("user_name", "Khương") ?: "Khương"
         )
@@ -117,6 +121,17 @@ class SettingsRepository(context: Context) {
     fun updateSound(enabled: Boolean) {
         prefs.edit().putBoolean("sound_enabled", enabled).apply()
         _settings.value = _settings.value.copy(soundEnabled = enabled)
+    }
+
+    fun updateNotificationSound(uri: String, name: String) {
+        prefs.edit()
+            .putString("sound_uri", uri)
+            .putString("sound_name", name)
+            .apply()
+        _settings.value = _settings.value.copy(
+            soundUri = uri,
+            soundName = name
+        )
     }
 
     fun updateVibration(enabled: Boolean) {

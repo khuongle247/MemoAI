@@ -9,6 +9,7 @@ import com.example.ai.ExtractedTask
 import com.example.ai.IntentType
 import com.example.ai.NoteSummaryResult
 import com.example.ai.ParsedTaskData
+import com.example.ai.RuleBasedNLPFallback
 import com.example.ai.SpeechRecognizerHelper
 import com.example.ai.VoiceState
 import com.example.data.local.entity.NoteEntity
@@ -113,20 +114,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         speechRecognizerHelper.stopListening()
     }
 
-    fun processSpokenText(text: String) {
+    fun processSpokenText(text: String, onGeneralQueryOrChat: (() -> Unit)? = null) {
         if (text.isBlank()) return
         viewModelScope.launch {
             _isAiProcessing.value = true
             val nowContext = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-            val result = aiProvider.parseVoiceIntent(text, nowContext)
+            val lower = text.lowercase().trim()
+            val hasNoteKeyword = lower.contains("ghi chú") || lower.contains("note") ||
+                    lower.contains("lưu ý") || lower.contains("nhớ giúp tôi") || lower.contains("ghi lại")
+            val hasAlarmKeyword = lower.contains("nhắc tôi") || lower.contains("báo thức") || lower.contains("hẹn giờ") ||
+                    lower.contains("báo tôi") || lower.contains("hẹn lúc")
+
+            val fastLocal = RuleBasedNLPFallback.parseIntent(text, nowContext)
+
+            // Fast path: if local parser detects a note or high-confidence task, respond in < 1ms!
+            val result = if (hasNoteKeyword && !hasAlarmKeyword) {
+                fastLocal
+            } else if (fastLocal.confidence >= 0.90f) {
+                fastLocal
+            } else {
+                try {
+                    aiProvider.parseVoiceIntent(text, nowContext)
+                } catch (e: Exception) {
+                    fastLocal
+                }
+            }
             _isAiProcessing.value = false
 
-            if (settings.value.autoCreateWithoutConfirmation && result.confidence >= 0.9f) {
-                // Auto create
-                executeIntentAction(result)
-                _aiIntentResult.value = null
-            } else {
-                _aiIntentResult.value = result
+            when (result.intent) {
+                IntentType.CREATE_TASK -> {
+                    if (settings.value.autoCreateWithoutConfirmation && result.confidence >= 0.85f && result.taskData != null) {
+                        executeIntentAction(result)
+                    } else {
+                        _aiIntentResult.value = result
+                    }
+                }
+                IntentType.CREATE_NOTE -> {
+                    if (settings.value.autoCreateWithoutConfirmation && result.confidence >= 0.85f && result.noteData != null) {
+                        executeIntentAction(result)
+                    } else {
+                        _aiIntentResult.value = result
+                    }
+                }
+                IntentType.COMPLETE_TASK -> {
+                    executeIntentAction(result)
+                }
+                IntentType.SEARCH_TASK, IntentType.SEARCH_NOTE, IntentType.GENERAL_QUERY -> {
+                    // Send to AI Assistant Chat and switch to Assistant screen so the user sees the answer!
+                    sendChatMessage(text)
+                    onGeneralQueryOrChat?.invoke()
+                }
+                else -> {
+                    sendChatMessage(text)
+                    onGeneralQueryOrChat?.invoke()
+                }
             }
         }
     }
@@ -261,6 +302,117 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _isAssistantThinking.value = true
+            val nowContext = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+
+            // 1. Check if user is asking a question / analysis query
+            val lower = userText.lowercase().trim()
+            val isQueryOrAnalysis = lower.contains("xếp loại") ||
+                    lower.contains("sắp xếp") ||
+                    lower.contains("phân loại") ||
+                    lower.contains("liệt kê") ||
+                    lower.contains("danh sách") ||
+                    lower.contains("tổng kết") ||
+                    lower.contains("tóm tắt") ||
+                    lower.contains("phân tích") ||
+                    lower.contains("đánh giá") ||
+                    lower.contains("việc nào") ||
+                    lower.contains("hôm nay làm gì") ||
+                    lower.contains("hôm nay tôi phải làm gì") ||
+                    lower.contains("có những việc gì") ||
+                    lower.contains("cho tôi xem") ||
+                    lower.contains("gợi ý") ||
+                    lower.contains("tư vấn") ||
+                    lower.contains("làm sao") ||
+                    lower.contains("như thế nào") ||
+                    lower.contains("thế nào") ||
+                    lower.endsWith("?")
+
+            val hasNoteKeyword = lower.contains("ghi chú") || lower.contains("note") ||
+                    lower.contains("lưu ý") || lower.contains("nhớ giúp tôi") || lower.contains("ghi lại")
+            val hasAlarmKeyword = lower.contains("nhắc tôi") || lower.contains("báo thức") || lower.contains("hẹn giờ") ||
+                    lower.contains("báo tôi") || lower.contains("hẹn lúc")
+
+            val fastLocal = RuleBasedNLPFallback.parseIntent(userText, nowContext)
+
+            var intentResult: AIIntentResult? = null
+            if (!isQueryOrAnalysis) {
+                if (hasNoteKeyword && !hasAlarmKeyword) {
+                    intentResult = fastLocal
+                } else if (fastLocal.confidence >= 0.90f && fastLocal.intent == IntentType.CREATE_TASK) {
+                    intentResult = fastLocal
+                }
+            }
+
+            if (intentResult != null && intentResult.intent == IntentType.CREATE_TASK && intentResult.taskData != null) {
+                val data = intentResult.taskData
+                val task = TaskEntity(
+                    title = data.title,
+                    description = data.description,
+                    dueDate = data.date,
+                    dueTime = data.time,
+                    reminderMinutesBefore = data.reminderMinutesBefore,
+                    priority = data.priority,
+                    category = data.category,
+                    repeatRule = data.repeatRule
+                )
+                val id = taskRepository.insertTask(task)
+                reminderManager.scheduleTaskReminder(task.copy(id = id))
+                _userFeedbackMessage.value = "Đã lên lịch công việc: \"${task.title}\""
+
+                val friendlyDate = if (task.dueDate == todayStr) "hôm nay (${task.dueDate})" else "ngày ${task.dueDate}"
+                val timeStr = if (!task.dueTime.isNullOrBlank()) " vào lúc **${task.dueTime}**" else ""
+                val prioBadge = when (task.priority) {
+                    TaskPriority.URGENT -> "🔴 Khẩn cấp"
+                    TaskPriority.HIGH -> "🟠 Cao"
+                    TaskPriority.MEDIUM -> "🟡 Trung bình"
+                    TaskPriority.LOW -> "🟢 Thấp"
+                }
+
+                val confirmationMsg = buildString {
+                    appendLine("Dạ vâng! Tôi đã ghi nhận và thêm công việc mới này vào lịch trình của bạn rồi nhé:")
+                    appendLine("")
+                    appendLine("📌 **Nhiệm vụ:** ${task.title}")
+                    appendLine("* ⏰ **Thời gian:** $friendlyDate$timeStr")
+                    appendLine("* 🏷️ **Nhóm:** ${task.category}")
+                    appendLine("* ⚡ **Mức ưu tiên:** $prioBadge")
+                    if (task.description.isNotBlank()) {
+                        appendLine("* 📝 **Ghi chú thêm:** ${task.description}")
+                    }
+                    appendLine("")
+                    appendLine("Nhiệm vụ đã được lưu thành công vào cơ sở dữ liệu. Bạn có thể xem ngay trong tab **Công việc** hoặc **Lịch trình** nhé! ✨")
+                }
+
+                _isAssistantThinking.value = false
+                _chatMessages.value = _chatMessages.value + ChatMessage(sender = "ai", text = confirmationMsg)
+                return@launch
+            } else if (intentResult != null && intentResult.intent == IntentType.CREATE_NOTE && intentResult.noteData != null) {
+                val data = intentResult.noteData
+                val note = NoteEntity(
+                    title = data.title,
+                    content = data.content,
+                    category = data.category,
+                    tags = data.tags.joinToString(",")
+                )
+                val id = noteRepository.insertNote(note)
+                _userFeedbackMessage.value = "Đã tạo ghi chú: \"${note.title}\""
+
+                val confirmationMsg = buildString {
+                    appendLine("Dạ vâng! Tôi đã lưu ghi chú mới này vào sổ tay của bạn rồi nhé:")
+                    appendLine("")
+                    appendLine("📝 **Tiêu đề:** ${note.title}")
+                    appendLine("* 📄 **Nội dung:** ${note.content}")
+                    appendLine("* 🏷️ **Danh mục:** ${note.category}")
+                    appendLine("")
+                    appendLine("Ghi chú đã sẵn sàng trong tab **Ghi chú** để bạn tra cứu bất cứ lúc nào! 💡")
+                }
+
+                _isAssistantThinking.value = false
+                _chatMessages.value = _chatMessages.value + ChatMessage(sender = "ai", text = confirmationMsg)
+                return@launch
+            }
+
+            // General query / conversational response
             val history = _chatMessages.value.dropLast(1).map { it.sender to it.text }
             val answer = aiProvider.chatWithAssistant(
                 userMessage = userText,
@@ -341,6 +493,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         root.put("tasks", taskArray)
         root.put("notes", noteArray)
         return root.toString(2)
+    }
+
+    fun testNotification() {
+        reminderManager.showTestNotification()
+        _userFeedbackMessage.value = "Đã phát chuông và gửi thông báo thử nghiệm! 🔔"
+    }
+
+    fun updateNotificationSound(uri: String, name: String) {
+        settingsRepository.updateNotificationSound(uri, name)
+        reminderManager.updateChannelSound()
+        _userFeedbackMessage.value = "Đã cập nhật âm thanh: $name 🎵"
     }
 
     fun clearAllData() {

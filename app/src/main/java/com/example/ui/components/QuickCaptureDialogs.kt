@@ -6,9 +6,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -23,12 +25,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import java.util.Locale
+import java.time.Instant
+import java.time.ZoneOffset
+import android.app.Activity
+import android.content.Intent
+import android.media.RingtoneManager
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.MemoApplication
 import com.example.ai.AIIntentResult
 import com.example.ai.ExtractedTask
 import com.example.ai.IntentType
@@ -54,7 +70,8 @@ fun VoiceCaptureModal(
     onSubmitPrompt: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var manualInputText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var transcribedText by remember { mutableStateOf("") }
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -66,12 +83,48 @@ fun VoiceCaptureModal(
         label = "mic_scale"
     )
 
-    // Handle voice success automatically
-    LaunchedEffect(voiceState) {
-        if (voiceState is VoiceState.Success) {
-            onSubmitPrompt(voiceState.recognizedText)
+    // Stream live recognized speech directly into transcribedText as the user speaks!
+    LaunchedEffect(partialText) {
+        if (partialText.isNotBlank()) {
+            transcribedText = partialText
         }
     }
+
+    LaunchedEffect(voiceState) {
+        if (voiceState is VoiceState.Success) {
+            transcribedText = voiceState.recognizedText
+        }
+    }
+
+    // System Voice Recognizer Launcher (Google Voice Typing fallback)
+    val systemVoiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spoken = matches?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                transcribedText = spoken
+            }
+        }
+    }
+
+    fun launchSystemVoiceRecognizer() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "vi-VN")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Nói câu lệnh hoặc việc cần nhắc...")
+            }
+            systemVoiceLauncher.launch(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Thiết bị không hỗ trợ Google Voice Typing", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -80,45 +133,75 @@ fun VoiceCaptureModal(
             tonalElevation = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(8.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
                 .testTag("voice_capture_dialog")
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp)
-                    .fillMaxWidth(),
+                    .padding(20.dp)
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "AI Sparkle",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Thu âm & Nhập liệu bằng AI",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "AI Sparkle",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Ghi âm & Nhập lệnh AI",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Nói tự nhiên để AI tạo lịch hoặc ghi chú",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Đóng")
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Microphone pulsating button
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(110.dp)
+                    modifier = Modifier.size(105.dp)
                 ) {
                     if (voiceState is VoiceState.Listening) {
                         Box(
@@ -126,7 +209,7 @@ fun VoiceCaptureModal(
                                 .size(100.dp)
                                 .scale(scale)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.25f))
                         )
                     }
 
@@ -150,103 +233,189 @@ fun VoiceCaptureModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Status text
-                when {
-                    isAiProcessing -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                // Status & Fallback hint
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    when {
+                        isAiProcessing -> {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "AI đang phân tích ý định...",
+                                text = "AI đang xử lý yêu cầu...",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        voiceState is VoiceState.Listening -> {
+                            Text(
+                                text = "🔴 Đang lắng nghe bạn nói...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        voiceState is VoiceState.Processing -> {
+                            Text(
+                                text = "Đang chuyển giọng nói thành văn bản...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        voiceState is VoiceState.Error -> {
+                            Text(
+                                text = (voiceState as VoiceState.Error).message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "Nhấn nút micro để nói (hoặc gõ bên dưới)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    voiceState is VoiceState.Listening -> {
-                        Text(
-                            text = if (partialText.isNotBlank()) partialText else "🎙 Đang lắng nghe bạn nói...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    voiceState is VoiceState.Processing -> {
-                        Text(
-                            text = "Đang chuyển giọng nói thành văn bản...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                    voiceState is VoiceState.Error -> {
-                        Text(
-                            text = (voiceState as VoiceState.Error).message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    else -> {
-                        Text(
-                            text = "Nhấn mic để nói hoặc nhập văn bản bên dưới",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                    }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Examples helper
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                // Alternate System Google Voice button
+                TextButton(
+                    onClick = { launchSystemVoiceRecognizer() },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Ví dụ câu lệnh:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "• \"Ngày mai 8 giờ sáng nhắc tôi nộp báo cáo\"\n• \"Ghi chú mật khẩu WiFi nhà mới là 123456\"\n• \"Chiều mai 3 giờ gọi cho mẹ\"",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Icon(Icons.Default.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Dùng Google Voice Typing của máy", fontSize = 11.sp)
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Manual text input fallback
+                // LIVE TRANSCRIPTION TEXT BOX (Ô text dưới nút ghi âm để hiện người nói nói gì)
                 OutlinedTextField(
-                    value = manualInputText,
-                    onValueChange = { manualInputText = it },
-                    placeholder = { Text("Hoặc nhập câu lệnh tự nhiên...") },
+                    value = transcribedText,
+                    onValueChange = { transcribedText = it },
+                    label = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (voiceState is VoiceState.Listening) Icons.Default.GraphicEq else Icons.Default.EditNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (voiceState is VoiceState.Listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (voiceState is VoiceState.Listening) "Nội dung đang nói..." else "Văn bản nhận diện được (có thể sửa):",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    },
+                    placeholder = {
+                        Text("Chữ bạn nói sẽ xuất hiện ở đây theo thời gian thực...")
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("voice_manual_input_field"),
-                    shape = RoundedCornerShape(14.dp),
+                        .heightIn(min = 100.dp, max = 150.dp)
+                        .testTag("voice_transcription_input_field"),
+                    shape = RoundedCornerShape(16.dp),
+                    minLines = 3,
+                    maxLines = 5,
                     trailingIcon = {
-                        if (manualInputText.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    val text = manualInputText
-                                    manualInputText = ""
-                                    onSubmitPrompt(text)
-                                },
-                                modifier = Modifier.testTag("voice_manual_submit_button")
-                            ) {
-                                Icon(Icons.Default.Send, contentDescription = "Gửi")
+                        if (transcribedText.isNotBlank()) {
+                            IconButton(onClick = { transcribedText = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Xóa")
                             }
                         }
                     }
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Action buttons right under the text box
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (transcribedText.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                transcribedText = ""
+                                onStartListening()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Nói lại", fontSize = 13.sp)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (transcribedText.isNotBlank()) {
+                                onSubmitPrompt(transcribedText.trim())
+                            }
+                        },
+                        enabled = transcribedText.isNotBlank() && !isAiProcessing,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(if (transcribedText.isNotBlank()) 1.6f else 1f).testTag("voice_submit_button")
+                    ) {
+                        if (isAiProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Đang phân tích...")
+                        } else {
+                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Xử lý bằng AI 🚀", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Quick suggestions helper chips
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(
+                        text = "Gợi ý mẫu câu:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "Chiều mai 3h gọi cho mẹ",
+                            "8h sáng mai nộp báo cáo",
+                            "Ghi chú mật khẩu WiFi"
+                        ).forEach { sample ->
+                            SuggestionChip(
+                                onClick = { transcribedText = sample },
+                                label = { Text(sample, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -431,13 +600,16 @@ fun TaskEditDialog(
     onSave: (TaskEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val initialDate = taskToEdit?.dueDate ?: defaultDate ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
     var title by remember { mutableStateOf(taskToEdit?.title ?: "") }
     var description by remember { mutableStateOf(taskToEdit?.description ?: "") }
     var date by remember { mutableStateOf(initialDate) }
     var time by remember { mutableStateOf(taskToEdit?.dueTime ?: "09:00") }
     var hasTime by remember { mutableStateOf(taskToEdit?.dueTime != null) }
-    var reminderOffset by remember { mutableIntStateOf(taskToEdit?.reminderMinutesBefore ?: 15) }
+    var reminderOffset by remember { mutableIntStateOf(taskToEdit?.reminderMinutesBefore ?: 0) }
     var priority by remember { mutableStateOf(taskToEdit?.priority ?: TaskPriority.MEDIUM) }
     var category by remember { mutableStateOf(taskToEdit?.category ?: "Công việc") }
     var repeatRule by remember { mutableStateOf(taskToEdit?.repeatRule ?: RecurrenceHelper.NONE) }
@@ -459,6 +631,164 @@ fun TaskEditDialog(
 
     val categories = listOf("Công việc", "Học tập", "Cá nhân", "Dự án", "Tài chính", "Ý tưởng", "Khác")
 
+    var showDatePickerModal by remember { mutableStateOf(false) }
+    var showTimePickerModal by remember { mutableStateOf(false) }
+    var showSoundPickerModal by remember { mutableStateOf(false) }
+
+    fun playSampleSound() {
+        try {
+            val app = context.applicationContext as? MemoApplication
+            val soundUri = app?.reminderManager?.getSoundUri() ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val ringtone = RingtoneManager.getRingtone(context, soundUri)
+            ringtone?.play()
+        } catch (_: Exception) {}
+    }
+
+    fun openDatePicker() {
+        showDatePickerModal = true
+    }
+
+    fun openTimePicker() {
+        showTimePickerModal = true
+    }
+
+    val friendlyDateLabel = remember(date) {
+        try {
+            val d = LocalDate.parse(date, DateTimeFormatter.ISO_LOCAL_DATE)
+            val today = LocalDate.now()
+            val dayOfWeek = when (d.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "Thứ 2"
+                java.time.DayOfWeek.TUESDAY -> "Thứ 3"
+                java.time.DayOfWeek.WEDNESDAY -> "Thứ 4"
+                java.time.DayOfWeek.THURSDAY -> "Thứ 5"
+                java.time.DayOfWeek.FRIDAY -> "Thứ 6"
+                java.time.DayOfWeek.SATURDAY -> "Thứ 7"
+                java.time.DayOfWeek.SUNDAY -> "Chủ nhật"
+            }
+            when (d) {
+                today -> "Hôm nay, $dayOfWeek (${d.format(DateTimeFormatter.ofPattern("dd/MM"))})"
+                today.plusDays(1) -> "Ngày mai, $dayOfWeek (${d.format(DateTimeFormatter.ofPattern("dd/MM"))})"
+                else -> "$dayOfWeek, ${d.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}"
+            }
+        } catch (_: Exception) {
+            date
+        }
+    }
+
+    // Material 3 Date Picker Modal Dialog
+    if (showDatePickerModal) {
+        val initialMillis = remember(date) {
+            try {
+                LocalDate.parse(date, DateTimeFormatter.ISO_LOCAL_DATE)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+        }
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = initialMillis
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePickerModal = false },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val selectedDate = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                            date = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                        }
+                        showDatePickerModal = false
+                    }
+                ) {
+                    Text("Xác nhận ngày")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePickerModal = false }) {
+                    Text("Hủy")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    // Material 3 Time Picker Modal Dialog
+    if (showTimePickerModal) {
+        val initialTime = remember(time) {
+            try {
+                LocalTime.parse(time, DateTimeFormatter.ofPattern("HH:mm"))
+            } catch (_: Exception) {
+                LocalTime.of(9, 0)
+            }
+        }
+        val timePickerState = rememberTimePickerState(
+            initialHour = initialTime.hour,
+            initialMinute = initialTime.minute,
+            is24Hour = true
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePickerModal = false },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        time = String.format(Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
+                        hasTime = true
+                        showTimePickerModal = false
+                    }
+                ) {
+                    Text("Xác nhận giờ")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePickerModal = false }) {
+                    Text("Hủy")
+                }
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.AccessTime,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Chọn khung giờ nhắc việc",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            }
+        )
+    }
+
+    if (showSoundPickerModal) {
+        val app = context.applicationContext as? MemoApplication
+        val curSoundUri = app?.reminderManager?.getSoundUri()?.toString() ?: ""
+        SoundPickerDialog(
+            currentSoundUri = curSoundUri,
+            onSoundSelected = { uri, name ->
+                app?.settingsRepository?.updateNotificationSound(uri, name)
+                app?.reminderManager?.updateChannelSound()
+            },
+            onDismiss = { showSoundPickerModal = false }
+        )
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -467,10 +797,25 @@ fun TaskEditDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
                 .testTag("task_edit_dialog")
         ) {
             Column(
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    }
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
@@ -506,25 +851,236 @@ fun TaskEditDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Date and Time Row
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = date,
-                        onValueChange = { date = it },
-                        label = { Text("Ngày (YYYY-MM-DD)") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        trailingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) }
+                // Date Picker Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Ngày thực hiện:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedTextField(
-                        value = time,
-                        onValueChange = { time = it },
-                        label = { Text("Giờ (HH:mm)") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        trailingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) }
+                    TextButton(
+                        onClick = { showDatePickerModal = true }
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Mở lịch", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showDatePickerModal = true }
+                        .testTag("task_date_picker_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.CalendarMonth,
+                                    contentDescription = "Chọn ngày",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Ngày hết hạn (Nhấn để mở lịch)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = friendlyDateLabel,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Default.EditCalendar,
+                            contentDescription = "Lịch",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                // Quick Date Preset Chips
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                    val tomorrowStr = LocalDate.now().plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+                    val nextWeekStr = LocalDate.now().plusWeeks(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+
+                    FilterChip(
+                        selected = date == todayStr,
+                        onClick = { date = todayStr },
+                        label = { Text("Hôm nay", fontSize = 11.5.sp) }
                     )
+                    FilterChip(
+                        selected = date == tomorrowStr,
+                        onClick = { date = tomorrowStr },
+                        label = { Text("Ngày mai", fontSize = 11.5.sp) }
+                    )
+                    FilterChip(
+                        selected = date == nextWeekStr,
+                        onClick = { date = nextWeekStr },
+                        label = { Text("Tuần sau", fontSize = 11.5.sp) }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { showDatePickerModal = true },
+                        label = { Text("Lịch 📅", fontSize = 11.5.sp) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Time Picker Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Giờ hẹn cụ thể",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Switch(
+                        checked = hasTime,
+                        onCheckedChange = { hasTime = it }
+                    )
+                }
+
+                if (hasTime) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showTimePickerModal = true }
+                            .testTag("task_time_picker_button")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.AccessTime,
+                                        contentDescription = "Chọn giờ",
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Khung giờ nhắc nhở (Nhấn để chọn giờ)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "$time (24h)",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.Default.HourglassBottom,
+                                contentDescription = "Giờ",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    // Quick Time Chips
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("08:00" to "Sáng 8h", "12:00" to "Trưa 12h", "14:00" to "Chiều 14h", "19:00" to "Tối 19h").forEach { (presetTime, label) ->
+                            FilterChip(
+                                selected = time == presetTime,
+                                onClick = { time = presetTime },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                        FilterChip(
+                            selected = false,
+                            onClick = { showTimePickerModal = true },
+                            label = { Text("Đồng hồ ⏰", fontSize = 11.sp) }
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "📌 Công việc cả ngày (không giới hạn khung giờ cố định)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -551,25 +1107,99 @@ fun TaskEditDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Reminder Offset
-                Text("Nhắc nhở trước:", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Reminder Offset & Notification Sound
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    listOf(0 to "Đúng giờ", 15 to "15p", 30 to "30p", 60 to "1h").forEach { (offset, label) ->
-                        FilterChip(
-                            selected = reminderOffset == offset,
-                            onClick = { reminderOffset = offset },
-                            label = { Text(label, fontSize = 12.sp) }
-                        )
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        "Thông báo & Âm thanh nhắc nhở",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Phát chuông báo khi tới giờ",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedButton(
+                                    onClick = { showSoundPickerModal = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Đổi chuông", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                FilledTonalButton(
+                                    onClick = { playSampleSound() },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Thử", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("Nhắc nhở trước hạn chót:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                0 to "Đúng giờ",
+                                5 to "5 phút",
+                                15 to "15 phút",
+                                30 to "30 phút",
+                                60 to "1 giờ"
+                            ).forEach { (offset, label) ->
+                                FilterChip(
+                                    selected = reminderOffset == offset,
+                                    onClick = { reminderOffset = offset },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Category
                 Text("Danh mục:", style = MaterialTheme.typography.labelMedium)
@@ -707,7 +1337,7 @@ fun TaskEditDialog(
                                     title = title.trim(),
                                     description = description.trim(),
                                     dueDate = date.trim(),
-                                    dueTime = time.trim().ifEmpty { null },
+                                    dueTime = if (hasTime) time.trim().ifEmpty { null } else null,
                                     reminderMinutesBefore = reminderOffset,
                                     priority = priority,
                                     category = category,
@@ -733,6 +1363,8 @@ fun NoteEditDialog(
     onSave: (NoteEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var title by remember { mutableStateOf(noteToEdit?.title ?: "") }
     var content by remember { mutableStateOf(noteToEdit?.content ?: "") }
     var category by remember { mutableStateOf(noteToEdit?.category ?: "Cá nhân") }
@@ -748,11 +1380,25 @@ fun NoteEditDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
                 .testTag("note_edit_dialog")
         ) {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 18.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    }
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(

@@ -19,7 +19,7 @@ sealed class Screen(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    object Home : Screen("home", "Tổng quan", Icons.Filled.Home, Icons.Outlined.Home)
+    object Home : Screen("home", "Trang chủ", Icons.Filled.Home, Icons.Outlined.Home)
     object Tasks : Screen("tasks", "Công việc", Icons.Filled.CheckCircle, Icons.Outlined.CheckCircle)
     object Notes : Screen("notes", "Ghi chú", Icons.Filled.Description, Icons.Outlined.Description)
     object Calendar : Screen("calendar", "Lịch trình", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth)

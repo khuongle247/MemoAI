@@ -9,7 +9,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -21,10 +23,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.repository.AppSettings
+import com.example.ui.components.SoundPickerDialog
 import com.example.ui.theme.spacing
 import kotlinx.coroutines.launch
 
@@ -37,17 +43,22 @@ fun SettingsScreen(
     onUpdateSound: (Boolean) -> Unit,
     onUpdateVibration: (Boolean) -> Unit,
     onUpdateUserName: (String) -> Unit,
+    onUpdateNotificationSound: (uri: String, name: String) -> Unit = { _, _ -> },
+    onTestNotification: () -> Unit = {},
     onExportData: suspend () -> String,
     onClearAllData: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val coroutineScope = rememberCoroutineScope()
     var showNameDialog by remember { mutableStateOf(false) }
     var tempName by remember { mutableStateOf(settings.userName) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showSoundDialog by remember { mutableStateOf(false) }
     var exportedJsonText by remember { mutableStateOf("") }
 
     val userInitial = remember(settings.userName) {
@@ -83,6 +94,13 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
                 .padding(horizontal = MaterialTheme.spacing.large),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.large)
         ) {
@@ -349,6 +367,76 @@ fun SettingsScreen(
                             )
                         }
 
+                        if (settings.soundEnabled) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { showSoundDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Kiểu chuông báo",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = settings.soundName.ifBlank { "Chuông mặc định hệ thống" },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                    FilledTonalButton(
+                                        onClick = { showSoundDialog = true },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier
+                                            .height(32.dp)
+                                            .testTag("choose_notification_sound_button")
+                                    ) {
+                                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Chọn chuông", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
                         HorizontalDivider(modifier = Modifier.padding(vertical = MaterialTheme.spacing.medium))
 
                         Row(
@@ -373,6 +461,24 @@ fun SettingsScreen(
                                 checked = settings.vibrationEnabled,
                                 onCheckedChange = { onUpdateVibration(it) }
                             )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = MaterialTheme.spacing.medium))
+
+                        FilledTonalButton(
+                            onClick = onTestNotification,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("test_notification_button")
+                        ) {
+                            Icon(
+                                Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Thử chuông & thông báo ngay", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -590,6 +696,17 @@ fun SettingsScreen(
                     Text("Đóng", style = MaterialTheme.typography.labelLarge)
                 }
             }
+        )
+    }
+
+    // Sound Picker Dialog
+    if (showSoundDialog) {
+        SoundPickerDialog(
+            currentSoundUri = settings.soundUri,
+            onSoundSelected = { uri, name ->
+                onUpdateNotificationSound(uri, name)
+            },
+            onDismiss = { showSoundDialog = false }
         )
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -18,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -41,6 +44,8 @@ fun TasksScreen(
     onAddNewTask: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Tất cả", "Hôm nay", "Sắp tới", "Lặp lại 🔄", "Đã xong", "Quá hạn")
@@ -123,6 +128,13 @@ fun TasksScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
         ) {
             // Search Bar
             OutlinedTextField(
@@ -293,7 +305,15 @@ fun TasksScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        },
                     contentPadding = PaddingValues(
                         start = MaterialTheme.spacing.large,
                         end = MaterialTheme.spacing.large,
@@ -317,6 +337,7 @@ fun TasksScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskCardItem(
     task: TaskEntity,
@@ -361,26 +382,26 @@ fun TaskCardItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = MaterialTheme.spacing.large,
-                    vertical = MaterialTheme.spacing.medium
+                    horizontal = 12.dp,
+                    vertical = 12.dp
                 ),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
             // Left priority indicator bar
             Box(
                 modifier = Modifier
-                    .width(MaterialTheme.spacing.extraSmall)
-                    .height(40.dp)
+                    .width(3.5.dp)
+                    .height(38.dp)
                     .clip(MaterialTheme.shapes.extraSmall)
                     .background(if (isCompleted) priorityColor.copy(alpha = 0.4f) else priorityColor)
             )
 
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.small))
 
-            // Checkbox button with compact modern circle and comfortable touch target
+            // Checkbox button with compact modern circle
             Box(
                 modifier = Modifier
-                    .size(MaterialTheme.spacing.minTouchTarget)
+                    .size(32.dp)
                     .clickable { onToggle() },
                 contentAlignment = Alignment.Center
             ) {
@@ -410,46 +431,82 @@ fun TaskCardItem(
                 }
             }
 
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.small))
 
+            // Task content
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (isCompleted) FontWeight.Normal else FontWeight.SemiBold,
-                    textDecoration = if (isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                    color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isCompleted) FontWeight.Normal else FontWeight.SemiBold,
+                        textDecoration = if (isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                        color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Xóa task",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
 
                 if (task.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = task.description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall)
+                // Metadata tags in FlowRow so they never overflow or squish
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Due Date Pill
+                    // Due Date & Time Pill (compact)
+                    val friendlyDate = when (task.dueDate) {
+                        todayStr -> "Hôm nay"
+                        LocalDate.parse(todayStr).plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE) -> "Ngày mai"
+                        else -> {
+                            try {
+                                val parsed = LocalDate.parse(task.dueDate)
+                                parsed.format(DateTimeFormatter.ofPattern("dd/MM"))
+                            } catch (_: Exception) {
+                                task.dueDate
+                            }
+                        }
+                    }
+                    val dateTimeText = if (task.dueTime != null) "$friendlyDate • ${task.dueTime}" else friendlyDate
+
                     Surface(
                         shape = MaterialTheme.shapes.extraSmall,
                         color = if (isOverdue) Color(0xFFFFE4E6) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                     ) {
                         Row(
-                            modifier = Modifier.padding(
-                                horizontal = MaterialTheme.spacing.small,
-                                vertical = 2.dp
-                            ),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -458,35 +515,19 @@ fun TaskCardItem(
                                 modifier = Modifier.size(11.dp),
                                 tint = if (isOverdue) Color(0xFFE11D48) else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.extraSmall))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isOverdue) "Quá hạn: ${task.dueDate}" else task.dueDate,
+                                text = if (isOverdue) "Quá hạn: $dateTimeText" else dateTimeText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isOverdue) Color(0xFFE11D48) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
 
-                    if (task.dueTime != null) {
-                        Surface(
-                            shape = MaterialTheme.shapes.extraSmall,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                text = task.dueTime,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(
-                                    horizontal = MaterialTheme.spacing.small,
-                                    vertical = 2.dp
-                                )
-                            )
-                        }
-                    }
-
-                    // Category Pill
+                    // Category Pill (never wrapped vertically!)
                     Surface(
                         shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
@@ -495,11 +536,28 @@ fun TaskCardItem(
                             text = task.category,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(
-                                horizontal = MaterialTheme.spacing.small,
-                                vertical = 2.dp
-                            )
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         )
+                    }
+
+                    // Priority Badge (for HIGH and URGENT)
+                    if (task.priority == TaskPriority.HIGH || task.priority == TaskPriority.URGENT) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = priorityColor.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (task.priority == TaskPriority.URGENT) "Khẩn cấp" else "Ưu tiên cao",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = priorityColor,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
                     }
 
                     // Recurrence badge
@@ -509,10 +567,7 @@ fun TaskCardItem(
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
                         ) {
                             Row(
-                                modifier = Modifier.padding(
-                                    horizontal = MaterialTheme.spacing.small,
-                                    vertical = 2.dp
-                                ),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -521,30 +576,19 @@ fun TaskCardItem(
                                     modifier = Modifier.size(11.dp),
                                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
-                                Spacer(modifier = Modifier.width(MaterialTheme.spacing.extraSmall))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                     text = RecurrenceHelper.formatRuleLabel(task.repeatRule),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                     }
                 }
-            }
-
-            // Delete action button
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(MaterialTheme.spacing.minTouchTarget)
-            ) {
-                Icon(
-                    Icons.Default.DeleteOutline,
-                    contentDescription = "Xóa task",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
     }

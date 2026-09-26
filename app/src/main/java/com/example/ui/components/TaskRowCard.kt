@@ -31,6 +31,7 @@ import com.example.data.local.entity.TaskPriority
 import com.example.data.local.entity.TaskStatus
 import com.example.ui.theme.spacing
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskRowCard(
     task: TaskEntity,
@@ -73,26 +74,26 @@ fun TaskRowCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = MaterialTheme.spacing.large,
-                    vertical = MaterialTheme.spacing.medium
+                    horizontal = 12.dp,
+                    vertical = 10.dp
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Left priority vertical bar
             Box(
                 modifier = Modifier
-                    .width(MaterialTheme.spacing.extraSmall)
-                    .height(36.dp)
+                    .width(3.5.dp)
+                    .height(34.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(if (isCompleted) priorityColor.copy(alpha = 0.4f) else priorityColor)
             )
 
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // Custom Checkbox button with compact modern circle and comfortable touch target
+            // Custom Checkbox button with compact modern circle
             Box(
                 modifier = Modifier
-                    .size(MaterialTheme.spacing.minTouchTarget)
+                    .size(34.dp)
                     .clickable { onToggle() },
                 contentAlignment = Alignment.Center
             ) {
@@ -122,7 +123,7 @@ fun TaskRowCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.medium))
+            Spacer(modifier = Modifier.width(8.dp))
 
             // Task content
             Column(modifier = Modifier.weight(1f)) {
@@ -133,15 +134,16 @@ fun TaskRowCard(
                     textDecoration = if (isCompleted) TextDecoration.LineThrough else TextDecoration.None,
                     color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(MaterialTheme.spacing.extraSmall))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     if (task.dueTime != null) {
                         Surface(
@@ -166,7 +168,9 @@ fun TaskRowCard(
                                     text = task.dueTime,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -181,6 +185,8 @@ fun TaskRowCard(
                             text = task.category,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(
                                 horizontal = MaterialTheme.spacing.small,
                                 vertical = 2.dp
@@ -212,7 +218,9 @@ fun TaskRowCard(
                                     text = RecurrenceHelper.formatRuleLabel(task.repeatRule),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }

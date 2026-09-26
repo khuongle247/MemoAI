@@ -34,6 +34,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -241,6 +243,9 @@ fun NoteEditorScreen(
             onBack()
         }
     }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Formatted date and time
     val formattedTimestamp = remember(initialNote?.updatedAt) {
@@ -641,6 +646,13 @@ fun NoteEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
                 .verticalScroll(rememberScrollState(), enabled = !isDrawingMode)
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
@@ -758,8 +770,19 @@ fun NoteEditorScreen(
                 )
             }
 
-            // Extra breathing space at bottom
-            Spacer(modifier = Modifier.height(120.dp))
+            // Extra breathing space at bottom - tapping here exits text editing & dismisses keyboard
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(350.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    }
+            )
         }
     }
 

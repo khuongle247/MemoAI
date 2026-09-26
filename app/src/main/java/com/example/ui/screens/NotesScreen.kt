@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +47,8 @@ fun NotesScreen(
     onAddNewNote: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedTag by remember { mutableStateOf("Tất cả") }
     var isGridView by remember { mutableStateOf(false) }
@@ -137,6 +142,13 @@ fun NotesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
         ) {
             // Search Input
             OutlinedTextField(
@@ -250,7 +262,15 @@ fun NotesScreen(
                 // Modern Grid View with generous width for note contents
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        },
                     contentPadding = PaddingValues(
                         start = MaterialTheme.spacing.medium,
                         end = MaterialTheme.spacing.medium,
@@ -273,7 +293,15 @@ fun NotesScreen(
             } else {
                 // List View with comfortable width and breathable reading space
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        },
                     contentPadding = PaddingValues(
                         start = MaterialTheme.spacing.medium,
                         end = MaterialTheme.spacing.medium,
